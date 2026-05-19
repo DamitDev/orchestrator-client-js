@@ -1,3 +1,5 @@
+import type { Pagination } from "./pagination.js";
+
 export interface ErrorEvent {
 	id: string;
 	createdAt: string;
@@ -33,4 +35,9 @@ export interface ErrorCountResult {
 
 export interface ErrorPurgeResult {
 	deleted: number;
+}
+
+export interface ErrorEventListResult {
+	items: ErrorEventDetail[];
+	pagination: Pagination;
 }

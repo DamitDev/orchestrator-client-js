@@ -33,6 +33,30 @@ export const EVENT_MESSAGE_STREAMING = "message_streaming";
 export const EVENT_MESSAGE_SUMMARY_GENERATED = "message_summary_generated";
 export const EVENT_MESSAGE_TRANSLATION_READY = "message_translation_ready";
 export const EVENT_ERROR_EVENT_RECORDED = "error_event_recorded";
+export const EVENT_TASK_BULK_DELETED = "task_bulk_deleted";
+export const EVENT_TASK_WORKFLOW_DATA_CHANGED = "task_workflow_data_changed";
+export const EVENT_ITERATION_REMINDER_ADDED = "iteration_reminder_added";
+export const EVENT_MESSAGE_DELETED = "message_deleted";
+export const EVENT_MESSAGE_UPDATED = "message_updated";
+export const EVENT_APPROVAL_REQUESTED = "approval_requested";
+export const EVENT_APPROVAL_PROVIDED = "approval_provided";
+export const EVENT_HELP_REQUESTED = "help_requested";
+export const EVENT_HELP_PROVIDED = "help_provided";
+export const EVENT_USER_MESSAGE_ADDED = "user_message_added";
+export const EVENT_MIO_MEMORY_CREATED = "mio_memory_created";
+export const EVENT_MIO_MEMORY_UPDATED = "mio_memory_updated";
+export const EVENT_MIO_MEMORY_DELETED = "mio_memory_deleted";
+export const EVENT_LLM_BACKEND_CHANGED = "llm_backend_changed";
+export const EVENT_MCP_SERVER_CHANGED = "mcp_server_changed";
+export const EVENT_MODEL_CONFIG_CHANGED = "model_config_changed";
+export const EVENT_TASK_HANDLER_STATUS_CHANGED = "task_handler_status_changed";
+export const EVENT_SUMMARY_WORKER_STATUS = "summary_worker_status";
+export const EVENT_TOKEN_WORKER_STATUS = "token_worker_status";
+export const EVENT_TOKEN_COUNT_UPDATED = "token_count_updated";
+export const EVENT_MESSAGES_ARCHIVED = "messages_archived";
+export const EVENT_SUBPROCESS_STARTED = "subprocess_started";
+export const EVENT_SUBPROCESS_COMPLETED = "subprocess_completed";
+export const EVENT_SUBPROCESS_FAILED = "subprocess_failed";
 
 export type EventHandler = (...args: unknown[]) => void;
 
@@ -47,6 +71,10 @@ export interface RealtimeClientOptions {
 
 /**
  * Socket.IO-based realtime client for receiving orchestrator events.
+ *
+ * The server wraps all domain events in a `message` Socket.IO event with an
+ * inner `event_type` field. This client unwraps the envelope and dispatches
+ * to registered handlers by event_type.
  */
 export class RealtimeClient {
 	private _baseUrl: string;
@@ -96,6 +124,10 @@ export class RealtimeClient {
 			this._connected = false;
 		});
 
+		// All domain events come wrapped in a `message` socket event with
+		// an inner `event_type` field. Dispatch them to registered handlers.
+		this._socket.on("message", (payload: unknown) => this._dispatch(payload));
+
 		return new Promise<void>((resolve, reject) => {
 			if (!this._socket) {
 				reject(new Error("RealtimeClient not connected"));
@@ -119,55 +151,138 @@ export class RealtimeClient {
 	}
 
 	/**
-	 * Subscribe to realtime events for a specific task.
+	 * Dispatch a message envelope to registered handlers.
+	 * The server sends: socket.emit("message", {type: "message", event: {..., event_type: "...", ...}})
 	 */
-	async subscribeTask(taskId: string): Promise<void> {
+	private _dispatch(payload: unknown): void {
+		const envelope = payload as Record<string, unknown>;
+		const event = (envelope.event ?? envelope) as Record<string, unknown>;
+		const eventType = event.event_type as string | undefined;
+		if (!eventType) return;
+		const handlers = this._handlers.get(eventType);
+		if (handlers) {
+			for (const h of handlers) {
+				h(event);
+			}
+		}
+	}
+
+	/**
+	 * Subscribe to realtime events for a specific task.
+	 * Emits a `join` event with `{rooms: ["task:{taskId}"]}`.
+	 */
+	subscribeTask(taskId: string): void {
 		if (!this._socket) throw new Error("RealtimeClient not connected");
-		return new Promise((resolve, reject) => {
-			this._socket?.emit(
-				"subscribe",
-				{ task_id: taskId },
-				(response: { ok: boolean; error?: string }) => {
-					if (response.ok) resolve();
-					else reject(new Error(response.error ?? "Subscription failed"));
-				},
-			);
-		});
+		this._socket.emit("join", { rooms: [`task:${taskId}`] });
 	}
 
 	/**
 	 * Unsubscribe from realtime events for a specific task.
+	 * Emits a `leave` event with `{rooms: ["task:{taskId}"]}`.
 	 */
-	async unsubscribeTask(taskId: string): Promise<void> {
+	unsubscribeTask(taskId: string): void {
 		if (!this._socket) throw new Error("RealtimeClient not connected");
-		return new Promise((resolve, reject) => {
-			this._socket?.emit(
-				"unsubscribe",
-				{ task_id: taskId },
-				(response: { ok: boolean; error?: string }) => {
-					if (response.ok) resolve();
-					else reject(new Error(response.error ?? "Unsubscription failed"));
-				},
-			);
-		});
+		this._socket.emit("leave", { rooms: [`task:${taskId}`] });
+	}
+
+	/**
+	 * Subscribe to event-type-scoped rooms.
+	 * e.g. subscribeEvents("task_created", "task_deleted")
+	 */
+	subscribeEvents(...eventTypes: string[]): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		const rooms = eventTypes.map((t) => `event:${t}`);
+		this._socket.emit("join", { rooms });
+	}
+
+	/**
+	 * Unsubscribe from event-type-scoped rooms.
+	 */
+	unsubscribeEvents(...eventTypes: string[]): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		const rooms = eventTypes.map((t) => `event:${t}`);
+		this._socket.emit("leave", { rooms });
+	}
+
+	/**
+	 * Subscribe to the `all` broadcast room (receives all events).
+	 */
+	subscribeAll(): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		this._socket.emit("join", { rooms: ["all"] });
+	}
+
+	/**
+	 * Subscribe to a locale-specific room.
+	 */
+	subscribeLocale(locale: string): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		this._socket.emit("join", { rooms: [`locale:${locale}`] });
+	}
+
+	/**
+	 * Unsubscribe from a locale-specific room.
+	 */
+	unsubscribeLocale(locale: string): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		this._socket.emit("leave", { rooms: [`locale:${locale}`] });
+	}
+
+	/**
+	 * Join arbitrary rooms by name.
+	 */
+	joinRooms(rooms: string[]): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		this._socket.emit("join", { rooms });
+	}
+
+	/**
+	 * Leave arbitrary rooms by name.
+	 */
+	leaveRooms(rooms: string[]): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		this._socket.emit("leave", { rooms });
+	}
+
+	/**
+	 * Send a ping to the server.
+	 */
+	ping(): void {
+		if (!this._socket) throw new Error("RealtimeClient not connected");
+		this._socket.emit("ping");
 	}
 
 	/**
 	 * Register a handler for a specific event type.
+	 *
+	 * Domain events (task_created, task_status_changed, etc.) are dispatched
+	 * via the message envelope. Raw socket events (connect, disconnect,
+	 * connection_established, rooms_updated, pong) are wired directly.
 	 */
 	on(event: string, handler: EventHandler): void {
 		if (!this._handlers.has(event)) {
 			this._handlers.set(event, new Set());
-			// Wire up socket listener when first handler is added
+			// For raw socket events that arrive outside the message envelope,
+			// also wire up a direct socket listener so they still fire.
 			if (this._socket) {
-				this._socket.on(event, (...args: unknown[]) => {
-					const handlers = this._handlers.get(event);
-					if (handlers) {
-						for (const h of handlers) {
-							h(...args);
+				const rawSocketEvents = new Set([
+					"connect",
+					"disconnect",
+					"connect_error",
+					"connection_established",
+					"rooms_updated",
+					"pong",
+				]);
+				if (rawSocketEvents.has(event)) {
+					this._socket.on(event, (...args: unknown[]) => {
+						const handlers = this._handlers.get(event);
+						if (handlers) {
+							for (const h of handlers) {
+								h(...args);
+							}
 						}
-					}
-				});
+					});
+				}
 			}
 		}
 		const handlers = this._handlers.get(event);

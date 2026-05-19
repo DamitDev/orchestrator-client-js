@@ -7,11 +7,12 @@ export interface AuthConfig {
 
 export interface WebSocketClientInfo {
 	clientId: string;
-	subscription: Record<string, unknown>;
-	connected: boolean;
+	connectedAt: string;
 }
 
 export interface WebSocketStatus {
 	connectedClients: number;
 	clients: WebSocketClientInfo[];
+	eventListenerHealthy: boolean;
+	lastEventTime?: string;
 }

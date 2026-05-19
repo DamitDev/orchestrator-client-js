@@ -24,28 +24,37 @@ import {
 import type {
 	AttachmentUploadResponse,
 	AuthConfig,
+	CatalogValidationResult,
 	CompactionEvent,
 	ConfigurationStatus,
 	ConversationResult,
 	ErrorCountResult,
 	ErrorEventDetail,
+	ErrorEventListResult,
 	ErrorPurgeResult,
 	ErrorStatsResult,
 	HealthDetail,
 	HealthStatus,
 	LeaderStatus,
+	MCPRefreshResult,
 	MatrixConversationResult,
 	Message,
+	MessageDeleteMultipleResult,
 	MessageTranslation,
 	MessageTranslationsResult,
 	MetricSnapshot,
 	MioContext,
+	MioMemoriesResult,
 	Pagination,
 	ReadinessResult,
+	ReloadServicesResult,
+	ReloadStatus,
 	SlotsStatus,
+	SubagentsStatus,
 	SuccessResponse,
 	SummaryWorkerStatus,
 	SystemStatus,
+	TaskCancelResponse,
 	TaskCreateResponse,
 	TaskDeleteResult,
 	TaskDetail,
@@ -55,6 +64,7 @@ import type {
 	TaskListResult,
 	TaskSummary,
 	TokenWorkerStatus,
+	ToolCatalogResult,
 	ToolInfo,
 	ToolsListResult,
 	VSATaskCreateResponse,
@@ -395,21 +405,25 @@ export class OrchestratorAsync {
 	// ------------------------------------------------------------------
 
 	async listTasks(params?: {
-		workflowId?: string;
-		status?: string;
+		page?: number;
 		limit?: number;
-		offset?: number;
-		sortBy?: string;
-		sortOrder?: string;
+		orderBy?: string;
+		orderDirection?: string;
+		workflowId?: string;
+		locale?: string;
 	}): Promise<TaskListResult> {
-		const data = await this._get<Record<string, unknown>>("/tasks", {
-			workflow_id: params?.workflowId,
-			status: params?.status,
-			limit: params?.limit,
-			offset: params?.offset,
-			sort_by: params?.sortBy,
-			sort_order: params?.sortOrder,
-		});
+		const headers: Record<string, string> = {};
+		if (params?.locale) headers["X-Locale"] = params.locale;
+		const data = (await this._request("GET", "/tasks", {
+			params: {
+				page: params?.page,
+				limit: params?.limit,
+				order_by: params?.orderBy,
+				order_direction: params?.orderDirection,
+				workflow_id: params?.workflowId,
+			},
+			headers,
+		})) as Record<string, unknown>;
 		const tasks = ((data.tasks ?? []) as Record<string, unknown>[]).map(
 			buildTaskSummary,
 		);
@@ -420,19 +434,37 @@ export class OrchestratorAsync {
 		workflowId: string;
 		goalPrompt: string;
 		maxIterations?: number;
-		options?: Record<string, boolean>;
+		reasoningEffort?: string;
+		systemPrompt?: string;
+		developerPrompt?: string;
 		ticketId?: string;
-		title?: string;
-		modelId?: string;
+		ticketText?: string;
+		summary?: string;
+		problemSummary?: string;
+		solutionStrategy?: string;
+		agentModelId?: string;
+		orchestratorModelId?: string;
+		availableTools?: string[];
+		attachmentIds?: string[];
+		options?: Record<string, boolean>;
 	}): Promise<TaskCreateResponse> {
-		const data = await this._post<Record<string, unknown>>("/tasks", {
+		const data = await this._post<Record<string, unknown>>("/task/create", {
 			workflow_id: params.workflowId,
 			goal_prompt: params.goalPrompt,
 			max_iterations: params.maxIterations,
-			options: params.options,
+			reasoning_effort: params.reasoningEffort,
+			system_prompt: params.systemPrompt,
+			developer_prompt: params.developerPrompt,
 			ticket_id: params.ticketId,
-			title: params.title,
-			model_id: params.modelId,
+			ticket_text: params.ticketText,
+			summary: params.summary,
+			problem_summary: params.problemSummary,
+			solution_strategy: params.solutionStrategy,
+			agent_model_id: params.agentModelId,
+			orchestrator_model_id: params.orchestratorModelId,
+			available_tools: params.availableTools,
+			attachment_ids: params.attachmentIds,
+			options: params.options,
 		});
 		return {
 			taskId: (data.taskId ?? data.task_id ?? "") as string,
@@ -440,8 +472,13 @@ export class OrchestratorAsync {
 		};
 	}
 
-	async getTaskStatus(taskId: string): Promise<TaskDetail> {
-		const data = await this._get<Record<string, unknown>>(`/tasks/${taskId}`);
+	async getTaskStatus(taskId: string, locale?: string): Promise<TaskDetail> {
+		const headers: Record<string, string> = {};
+		if (locale) headers["X-Locale"] = locale;
+		const data = (await this._request("GET", "/task/status", {
+			params: { task_id: taskId },
+			headers,
+		})) as Record<string, unknown>;
 		return {
 			...buildTaskSummary(data),
 			subtaskIds: (data.subtaskIds ?? data.subtask_ids ?? []) as string[],
@@ -453,10 +490,35 @@ export class OrchestratorAsync {
 		};
 	}
 
-	async getTaskConversation(taskId: string): Promise<ConversationResult> {
-		const data = await this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/conversation`,
-		);
+	async setTaskStatus(
+		taskId: string,
+		status: string,
+	): Promise<SuccessResponse> {
+		const data = await this._post<Record<string, unknown>>("/task/set_status", {
+			task_id: taskId,
+			status,
+		});
+		return { message: (data.message ?? "") as string };
+	}
+
+	async getTaskConversation(
+		taskId: string,
+		params?: {
+			includeSummaries?: boolean;
+			excludeArchived?: boolean;
+			locale?: string;
+		},
+	): Promise<ConversationResult> {
+		const headers: Record<string, string> = {};
+		if (params?.locale) headers["X-Locale"] = params.locale;
+		const data = (await this._request("GET", "/task/conversation", {
+			params: {
+				task_id: taskId,
+				include_summaries: params?.includeSummaries,
+				exclude_archived: params?.excludeArchived,
+			},
+			headers,
+		})) as Record<string, unknown>;
 		return {
 			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
 			conversation: (
@@ -470,21 +532,22 @@ export class OrchestratorAsync {
 		messageId: number,
 	): Promise<Record<string, unknown>> {
 		return this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/conversation/messages/${messageId}/archived`,
+			"/task/message/archived-content",
+			{ task_id: taskId, message_id: messageId },
 		);
 	}
 
 	async getTaskCompactions(taskId: string): Promise<CompactionEvent[]> {
-		const data = await this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/compactions`,
-		);
+		const data = await this._get<Record<string, unknown>>("/task/compactions", {
+			task_id: taskId,
+		});
 		return (data.compactions ?? []) as CompactionEvent[];
 	}
 
 	async getTaskJournal(taskId: string): Promise<TaskJournal> {
-		const data = await this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/journal`,
-		);
+		const data = await this._get<Record<string, unknown>>("/task/journal", {
+			task_id: taskId,
+		});
 		return {
 			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
 			exists: (data.exists ?? false) as boolean,
@@ -497,17 +560,26 @@ export class OrchestratorAsync {
 		};
 	}
 
-	async cancelTask(taskId: string): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/cancel`,
-		);
-		return { message: (data.message ?? "") as string };
+	async cancelTask(taskId: string): Promise<TaskCancelResponse> {
+		const data = await this._post<Record<string, unknown>>("/task/cancel", {
+			task_id: taskId,
+		});
+		return {
+			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
+			killed: (data.killed ?? false) as boolean,
+			via: (data.via ?? "none") as "local" | "remote" | "none" | "fallback",
+			holderId: (data.holderId ?? data.holder_id ?? undefined) as
+				| string
+				| undefined,
+			reason: (data.reason ?? undefined) as string | undefined,
+			message: (data.message ?? "") as string,
+		};
 	}
 
 	async deleteTask(taskId: string): Promise<TaskDeleteResult> {
-		const data = await this._delete<Record<string, unknown>>(
-			`/tasks/${taskId}`,
-		);
+		const data = await this._post<Record<string, unknown>>("/task/delete", {
+			task_id: taskId,
+		});
 		return {
 			deletedTasks: (data.deletedTasks ?? data.deleted_tasks ?? []) as string[],
 			failedTasks: (data.failedTasks ?? data.failed_tasks ?? []) as string[],
@@ -517,9 +589,10 @@ export class OrchestratorAsync {
 	}
 
 	async deleteTasks(taskIds: string[]): Promise<TaskDeleteResult> {
-		const data = await this._post<Record<string, unknown>>("/tasks/delete", {
-			task_ids: taskIds,
-		});
+		const data = await this._post<Record<string, unknown>>(
+			"/task/delete/multiple",
+			{ task_ids: taskIds },
+		);
 		return {
 			deletedTasks: (data.deletedTasks ?? data.deleted_tasks ?? []) as string[],
 			failedTasks: (data.failedTasks ?? data.failed_tasks ?? []) as string[],
@@ -533,7 +606,6 @@ export class OrchestratorAsync {
 	// ------------------------------------------------------------------
 
 	async uploadAttachment(
-		taskId: string,
 		file: File | Blob,
 		filename?: string,
 	): Promise<AttachmentUploadResponse> {
@@ -541,14 +613,11 @@ export class OrchestratorAsync {
 		formData.append("file", file, filename);
 		const headers = await this._resolveHeaders();
 		// Don't set Content-Type for FormData — browser sets it with boundary
-		const response = await this._fetch(
-			this._makeUrl(`/tasks/${taskId}/attachments`),
-			{
-				method: "POST",
-				headers: { ...headers },
-				body: formData,
-			},
-		);
+		const response = await this._fetch(this._makeUrl("/attachment"), {
+			method: "POST",
+			headers: { ...headers },
+			body: formData,
+		});
 		if (!response.ok) {
 			throw new OrchestratorAPIError(
 				`Attachment upload failed: ${response.statusText}`,
@@ -569,16 +638,11 @@ export class OrchestratorAsync {
 		};
 	}
 
-	async downloadAttachment(
-		taskId: string,
-		attachmentId: string,
-	): Promise<Blob> {
+	async downloadAttachment(attachmentId: string): Promise<Blob> {
 		const headers = await this._resolveHeaders();
 		const response = await this._fetch(
-			this._makeUrl(`/tasks/${taskId}/attachments/${attachmentId}`),
-			{
-				headers,
-			},
+			this._makeUrl(`/attachment/${attachmentId}`),
+			{ headers },
 		);
 		if (!response.ok) {
 			throw new OrchestratorAPIError(
@@ -595,34 +659,47 @@ export class OrchestratorAsync {
 
 	async sendInteractiveMessage(
 		taskId: string,
-		content: string,
+		message: string,
+		attachmentIds?: string[],
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/interactive/message`,
-			{
-				content,
-			},
+			"/task/interactive/message",
+			{ task_id: taskId, message, attachment_ids: attachmentIds },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markInteractiveComplete(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/interactive/complete`,
+			"/task/interactive/mark_complete",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markInteractiveFailed(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/interactive/failed`,
+			"/task/interactive/mark_failed",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
-	async approveInteractiveAction(taskId: string): Promise<SuccessResponse> {
+	async approveInteractiveAction(
+		taskId: string,
+		approved = true,
+	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/interactive/approve`,
+			"/task/interactive/action",
+			{ task_id: taskId, approved },
+		);
+		return { message: (data.message ?? "") as string };
+	}
+
+	async stopInteractive(taskId: string): Promise<SuccessResponse> {
+		const data = await this._post<Record<string, unknown>>(
+			"/task/interactive/stop",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -633,13 +710,12 @@ export class OrchestratorAsync {
 
 	async sendProactiveGuide(
 		taskId: string,
-		guide: string,
+		message: string,
+		attachmentIds?: string[],
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/proactive/guide`,
-			{
-				guide,
-			},
+			"/task/proactive/guide",
+			{ task_id: taskId, message, attachment_ids: attachmentIds },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -649,17 +725,19 @@ export class OrchestratorAsync {
 		response: string,
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/proactive/respond`,
-			{
-				response,
-			},
+			"/task/proactive/help",
+			{ task_id: taskId, response },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
-	async approveProactiveAction(taskId: string): Promise<SuccessResponse> {
+	async approveProactiveAction(
+		taskId: string,
+		approved = true,
+	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/proactive/approve`,
+			"/task/proactive/action",
+			{ task_id: taskId, approved },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -670,13 +748,12 @@ export class OrchestratorAsync {
 
 	async sendTicketGuide(
 		taskId: string,
-		guide: string,
+		message: string,
+		attachmentIds?: string[],
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/ticket/guide`,
-			{
-				guide,
-			},
+			"/task/ticket/guide",
+			{ task_id: taskId, message, attachment_ids: attachmentIds },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -686,24 +763,27 @@ export class OrchestratorAsync {
 		response: string,
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/ticket/respond`,
-			{
-				response,
-			},
+			"/task/ticket/help",
+			{ task_id: taskId, response },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
-	async approveTicketAction(taskId: string): Promise<SuccessResponse> {
+	async approveTicketAction(
+		taskId: string,
+		approved = true,
+	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/ticket/approve`,
+			"/task/ticket/action",
+			{ task_id: taskId, approved },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async wakeTicket(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/ticket/wake`,
+			"/task/ticket/wake",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -714,43 +794,55 @@ export class OrchestratorAsync {
 
 	async sendMatrixMessage(
 		taskId: string,
-		content: string,
+		message: string,
+		attachmentIds?: string[],
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/matrix/message`,
-			{
-				content,
-			},
+			"/task/matrix/message",
+			{ task_id: taskId, message, attachment_ids: attachmentIds },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markMatrixComplete(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/matrix/complete`,
+			"/task/matrix/mark_complete",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markMatrixFailed(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/matrix/failed`,
+			"/task/matrix/mark_failed",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
-	async approveMatrixAction(taskId: string): Promise<SuccessResponse> {
+	async approveMatrixAction(
+		taskId: string,
+		approved = true,
+	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/matrix/approve`,
+			"/task/matrix/action",
+			{ task_id: taskId, approved },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getMatrixConversation(
 		taskId: string,
+		phase?: number,
+		includeSummaries?: boolean,
 	): Promise<MatrixConversationResult> {
 		const data = await this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/matrix/conversation`,
+			"/task/matrix/conversation",
+			{
+				task_id: taskId,
+				phase,
+				include_summaries: includeSummaries,
+			},
 		);
 		return {
 			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
@@ -765,22 +857,31 @@ export class OrchestratorAsync {
 	// ------------------------------------------------------------------
 
 	async createVSATask(params: {
+		userId: string;
 		goalPrompt: string;
 		title?: string;
-		modelId?: string;
-		/** Short-lived AiDIT delegated token (RFC 8693). Stored encrypted;
-		 *  transparently appended as `token` to mcp-aidit tool-call arguments. */
+		agentModelId?: string;
+		orchestratorModelId?: string;
+		attachmentIds?: string[];
+		options?: Record<string, boolean>;
 		delegatedToken?: string;
 	}): Promise<VSATaskCreateResponse> {
 		const body: Record<string, unknown> = {
+			user_id: params.userId,
 			goal_prompt: params.goalPrompt,
 			title: params.title,
-			model_id: params.modelId,
+			agent_model_id: params.agentModelId,
+			orchestrator_model_id: params.orchestratorModelId,
+			attachment_ids: params.attachmentIds,
+			options: params.options,
 		};
 		if (params.delegatedToken !== undefined) {
 			body.delegated_token = params.delegatedToken;
 		}
-		const data = await this._post<Record<string, unknown>>("/tasks/vsa", body);
+		const data = await this._post<Record<string, unknown>>(
+			"/task/vsa/create",
+			body,
+		);
 		return {
 			taskId: (data.taskId ?? data.task_id ?? "") as string,
 			status: (data.status ?? "") as string,
@@ -789,76 +890,81 @@ export class OrchestratorAsync {
 
 	async sendVSAMessage(
 		taskId: string,
-		content: string,
+		message: string,
 		options?: {
+			attachmentIds?: string[];
 			/** Short-lived AiDIT delegated token. When provided, overwrites the
 			 *  token stored for the task. Omitting leaves the existing token unchanged. */
 			delegatedToken?: string;
 		},
 	): Promise<SuccessResponse> {
-		const body: Record<string, unknown> = { content };
+		const body: Record<string, unknown> = {
+			task_id: taskId,
+			message,
+			attachment_ids: options?.attachmentIds,
+		};
 		if (options?.delegatedToken !== undefined) {
 			body.delegated_token = options.delegatedToken;
 		}
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa/message`,
+			"/task/vsa/message",
 			body,
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async renameVSATask(taskId: string, title: string): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa/rename`,
-			{
-				title,
-			},
-		);
+		const data = await this._post<Record<string, unknown>>("/task/vsa/rename", {
+			task_id: taskId,
+			title,
+		});
 		return { message: (data.message ?? "") as string };
 	}
 
 	async regenerateVSATitle(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa/regenerate-title`,
+			"/task/vsa/regenerate_title",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markVSAComplete(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa/complete`,
+			"/task/vsa/mark_complete",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markVSAFailed(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa/failed`,
+			"/task/vsa/mark_failed",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async stopVSA(taskId: string): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa/stop`,
-		);
+		const data = await this._post<Record<string, unknown>>("/task/vsa/stop", {
+			task_id: taskId,
+		});
 		return { message: (data.message ?? "") as string };
 	}
 
 	async deleteVSA(taskId: string): Promise<SuccessResponse> {
-		const data = await this._delete<Record<string, unknown>>(
-			`/tasks/${taskId}/vsa`,
-		);
+		const data = await this._post<Record<string, unknown>>("/task/vsa/delete", {
+			task_id: taskId,
+		});
 		return { message: (data.message ?? "") as string };
 	}
 
-	async listVSATasks(params?: {
-		status?: string;
-		limit?: number;
-		offset?: number;
-	}): Promise<TaskListResult> {
-		const data = await this._get<Record<string, unknown>>("/tasks/vsa", {
-			status: params?.status,
+	async listVSATasks(
+		userId: string,
+		params?: { limit?: number; offset?: number },
+	): Promise<TaskListResult> {
+		const data = await this._get<Record<string, unknown>>("/task/vsa/list", {
+			user_id: userId,
 			limit: params?.limit,
 			offset: params?.offset,
 		});
@@ -868,9 +974,15 @@ export class OrchestratorAsync {
 		return { tasks, pagination: buildPagination(data) };
 	}
 
-	async searchVSATasks(query: string): Promise<TaskListResult> {
-		const data = await this._get<Record<string, unknown>>("/tasks/vsa/search", {
-			q: query,
+	async searchVSATasks(
+		userId: string,
+		query: string,
+		limit?: number,
+	): Promise<TaskListResult> {
+		const data = await this._get<Record<string, unknown>>("/task/vsa/search", {
+			user_id: userId,
+			query,
+			limit,
 		});
 		const tasks = ((data.tasks ?? []) as Record<string, unknown>[]).map(
 			buildTaskSummary,
@@ -878,88 +990,124 @@ export class OrchestratorAsync {
 		return { tasks, pagination: buildPagination(data) };
 	}
 
-	async deleteVSATasksBulk(taskIds: string[]): Promise<SuccessResponse> {
+	async deleteVSATasksBulk(taskIds: string[]): Promise<TaskDeleteResult> {
 		const data = await this._post<Record<string, unknown>>(
-			"/tasks/vsa/delete-bulk",
-			{
-				task_ids: taskIds,
-			},
+			"/task/vsa/delete_bulk",
+			{ task_ids: taskIds },
 		);
-		return { message: (data.message ?? "") as string };
+		return {
+			deletedTasks: (data.deletedTasks ?? data.deleted_tasks ?? []) as string[],
+			failedTasks: (data.failedTasks ?? data.failed_tasks ?? []) as string[],
+			totalDeleted: (data.totalDeleted ?? data.total_deleted ?? 0) as number,
+			totalFailed: (data.totalFailed ?? data.total_failed ?? 0) as number,
+		};
 	}
 
 	// ------------------------------------------------------------------
-	// MIO workflow
+	// MIO (self_managed) workflow
 	// ------------------------------------------------------------------
 
 	async sendMioMessage(
 		taskId: string,
-		content: string,
+		message: string,
+		attachmentIds?: string[],
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/message`,
-			{
-				content,
-			},
+			"/task/self_managed/message",
+			{ task_id: taskId, message, attachment_ids: attachmentIds },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
-	async approveMioAction(taskId: string): Promise<SuccessResponse> {
+	async approveMioAction(
+		taskId: string,
+		approved = true,
+		feedback?: string,
+	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/approve`,
+			"/task/self_managed/action",
+			{ task_id: taskId, approved, feedback },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async wakeMio(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/wake`,
+			"/task/self_managed/wake",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async sendMioUserAway(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/user-away`,
+			"/task/self_managed/user_away",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markMioComplete(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/complete`,
+			"/task/self_managed/mark_complete",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async markMioFailed(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/failed`,
+			"/task/self_managed/mark_failed",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async archiveMio(taskId: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/archive`,
+			"/task/self_managed/archive",
+			{ task_id: taskId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getMioContext(taskId: string): Promise<MioContext> {
 		const data = await this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/mio/context`,
+			"/task/self_managed/context",
+			{ task_id: taskId },
 		);
 		return {
 			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
+			modelId: (data.modelId ?? data.model_id ?? "") as string,
 			currentTokens: (data.currentTokens ?? data.current_tokens ?? 0) as number,
 			contextLimit: (data.contextLimit ?? data.context_limit ?? 0) as number,
 			usagePercentage: (data.usagePercentage ??
 				data.usage_percentage ??
 				0) as number,
-			archivedCount: (data.archivedCount ?? data.archived_count ?? 0) as number,
-			activeCount: (data.activeCount ?? data.active_count ?? 0) as number,
+			totalMessages: (data.totalMessages ?? data.total_messages ?? 0) as number,
+			activeMessages: (data.activeMessages ??
+				data.active_messages ??
+				0) as number,
+			archivedMessages: (data.archivedMessages ??
+				data.archived_messages ??
+				0) as number,
+			messagesWithoutTokenCount: (data.messagesWithoutTokenCount ??
+				data.messages_without_token_count ??
+				0) as number,
+		};
+	}
+
+	async getMioMemories(
+		taskId: string,
+		includeCommon?: boolean,
+	): Promise<MioMemoriesResult> {
+		const data = await this._get<Record<string, unknown>>(
+			"/task/self_managed/memories",
+			{ task_id: taskId, include_common: includeCommon },
+		);
+		return {
+			memories: (data.memories ?? []) as MioMemoriesResult["memories"],
+			total: (data.total ?? 0) as number,
 		};
 	}
 
@@ -968,14 +1116,26 @@ export class OrchestratorAsync {
 	// ------------------------------------------------------------------
 
 	async listTools(): Promise<ToolsListResult> {
-		const data = await this._get<Record<string, unknown>>("/tools");
+		const data = await this._get<Record<string, unknown>>("/tools/all");
 		return {
-			tools: (
-				(data.tools ?? data.tools ?? []) as Record<string, unknown>[]
-			).map((t) => t as unknown as ToolInfo),
+			tools: ((data.tools ?? []) as Record<string, unknown>[]).map(
+				(t) => t as unknown as ToolInfo,
+			),
 			totalTools: (data.totalTools ?? data.total_tools ?? 0) as number,
 			servers: (data.servers ?? []) as string[],
 		};
+	}
+
+	async getToolCatalog(): Promise<ToolCatalogResult> {
+		return this._get<ToolCatalogResult>("/tools/catalog");
+	}
+
+	async refreshMCPTools(): Promise<MCPRefreshResult> {
+		return this._post<MCPRefreshResult>("/tools/mcp/refresh");
+	}
+
+	async validateToolCatalog(): Promise<CatalogValidationResult> {
+		return this._get<CatalogValidationResult>("/tools/validate");
 	}
 
 	// ------------------------------------------------------------------
@@ -984,7 +1144,7 @@ export class OrchestratorAsync {
 
 	async getWorkflowStates(): Promise<WorkflowStates> {
 		const data = await this._get<Record<string, unknown>>(
-			"/debug/workflow-states",
+			"/debug/workflow_states",
 		);
 		return {
 			validStates: (data.validStates ?? data.valid_states ?? {}) as Record<
@@ -1008,13 +1168,14 @@ export class OrchestratorAsync {
 
 	async updateTaskModels(
 		taskId: string,
-		models: { agent?: string; orchestrator?: string },
+		models: { agentModelId?: string; orchestratorModelId?: string },
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/models`,
+			"/debug/task/models",
 			{
-				agent: models.agent,
-				orchestrator: models.orchestrator,
+				task_id: taskId,
+				agent_model_id: models.agentModelId,
+				orchestrator_model_id: models.orchestratorModelId,
 			},
 		);
 		return { message: (data.message ?? "") as string };
@@ -1022,13 +1183,12 @@ export class OrchestratorAsync {
 
 	async updateTaskIteration(
 		taskId: string,
-		iteration: number,
+		iteration?: number,
+		maxIterations?: number,
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/iteration`,
-			{
-				iteration,
-			},
+			"/debug/task/iteration",
+			{ task_id: taskId, iteration, max_iterations: maxIterations },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -1038,10 +1198,8 @@ export class OrchestratorAsync {
 		workflowData: Record<string, unknown>,
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/workflow-data`,
-			{
-				workflow_data: workflowData,
-			},
+			"/debug/task/workflow_data",
+			{ task_id: taskId, workflow_data: workflowData },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -1050,8 +1208,9 @@ export class OrchestratorAsync {
 		taskId: string,
 		messageId: number,
 	): Promise<SuccessResponse> {
-		const data = await this._delete<Record<string, unknown>>(
-			`/tasks/${taskId}/conversation/messages/${messageId}`,
+		const data = await this._post<Record<string, unknown>>(
+			"/debug/task/message/delete",
+			{ task_id: taskId, message_id: messageId },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -1059,12 +1218,17 @@ export class OrchestratorAsync {
 	async deleteMessages(
 		taskId: string,
 		messageIds: number[],
-	): Promise<SuccessResponse> {
+	): Promise<MessageDeleteMultipleResult> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/conversation/messages/delete`,
-			{ message_ids: messageIds },
+			"/debug/task/message/delete/multiple",
+			{ task_id: taskId, message_ids: messageIds },
 		);
-		return { message: (data.message ?? "") as string };
+		return {
+			deletedIds: (data.deletedIds ?? data.deleted_ids ?? []) as number[],
+			failedIds: (data.failedIds ?? data.failed_ids ?? []) as number[],
+			totalDeleted: (data.totalDeleted ?? data.total_deleted ?? 0) as number,
+			totalFailed: (data.totalFailed ?? data.total_failed ?? 0) as number,
+		};
 	}
 
 	async updateMessage(
@@ -1072,9 +1236,9 @@ export class OrchestratorAsync {
 		messageId: number,
 		update: { content?: string; reasoning?: string },
 	): Promise<SuccessResponse> {
-		const data = await this._put<Record<string, unknown>>(
-			`/tasks/${taskId}/conversation/messages/${messageId}`,
-			update,
+		const data = await this._post<Record<string, unknown>>(
+			"/debug/task/message/update",
+			{ task_id: taskId, message_id: messageId, ...update },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -1084,8 +1248,8 @@ export class OrchestratorAsync {
 		phase: number,
 	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			`/tasks/${taskId}/matrix/reset`,
-			{ phase },
+			"/debug/task/matrix/reset_to_phase",
+			{ task_id: taskId, phase },
 		);
 		return { message: (data.message ?? "") as string };
 	}
@@ -1093,13 +1257,9 @@ export class OrchestratorAsync {
 	async getMessageTranslations(
 		taskId: string,
 		messageId: number,
-		locale?: string,
 	): Promise<MessageTranslationsResult> {
-		const params: Record<string, string | number | boolean | undefined> = {};
-		if (locale) params.locale = locale;
 		const data = await this._get<Record<string, unknown>>(
-			`/tasks/${taskId}/conversation/messages/${messageId}/translations`,
-			params,
+			`/debug/task/${taskId}/message/${messageId}/translations`,
 		);
 		return {
 			messageId: (data.messageId ?? data.message_id ?? messageId) as number,
@@ -1114,27 +1274,65 @@ export class OrchestratorAsync {
 	// ------------------------------------------------------------------
 
 	async listErrors(params?: {
-		since?: string;
-		severity?: string;
-		source?: string;
+		page?: number;
 		limit?: number;
-		offset?: number;
-	}): Promise<ErrorEventDetail[]> {
-		const queryParams: Record<string, string | number | boolean | undefined> =
-			{};
-		if (params?.since) queryParams.since = params.since;
-		if (params?.severity) queryParams.severity = params.severity;
-		if (params?.source) queryParams.source = params.source;
-		if (params?.limit) queryParams.limit = params.limit;
-		if (params?.offset) queryParams.offset = params.offset;
+		taskId?: string;
+		severity?: string[];
+		source?: string[];
+		workflowId?: string;
+		errorCode?: string;
+		exceptionType?: string;
+		holderId?: string;
+		requestId?: string;
+		search?: string;
+		since?: string;
+		until?: string;
+		orderDirection?: string;
+	}): Promise<ErrorEventListResult> {
+		const authHeaders = await this._resolveHeaders();
+		const url = new URL(this._makeUrl("/errors"));
+		if (params?.page !== undefined)
+			url.searchParams.set("page", String(params.page));
+		if (params?.limit !== undefined)
+			url.searchParams.set("limit", String(params.limit));
+		if (params?.taskId) url.searchParams.set("task_id", params.taskId);
+		if (params?.workflowId)
+			url.searchParams.set("workflow_id", params.workflowId);
+		if (params?.errorCode) url.searchParams.set("error_code", params.errorCode);
+		if (params?.exceptionType)
+			url.searchParams.set("exception_type", params.exceptionType);
+		if (params?.holderId) url.searchParams.set("holder_id", params.holderId);
+		if (params?.requestId) url.searchParams.set("request_id", params.requestId);
+		if (params?.search) url.searchParams.set("search", params.search);
+		if (params?.since) url.searchParams.set("since", params.since);
+		if (params?.until) url.searchParams.set("until", params.until);
+		if (params?.orderDirection)
+			url.searchParams.set("order_direction", params.orderDirection);
+		// Multi-value params: repeat for each value
+		for (const s of params?.severity ?? []) {
+			url.searchParams.append("severity", s);
+		}
+		for (const s of params?.source ?? []) {
+			url.searchParams.append("source", s);
+		}
 
-		const data = await this._get<Record<string, unknown>>(
-			"/errors",
-			queryParams,
-		);
-		return ((data.errors ?? []) as Record<string, unknown>[]).map(
-			(e) => e as unknown as ErrorEventDetail,
-		);
+		const response = await this._fetch(url.toString(), {
+			method: "GET",
+			headers: { ...authHeaders },
+		});
+		if (!response.ok) {
+			throw new OrchestratorAPIError(
+				`listErrors failed: ${response.statusText}`,
+				response.status,
+			);
+		}
+		const data = (await response.json()) as Record<string, unknown>;
+		return {
+			items: (
+				(data.items ?? data.errors ?? []) as Record<string, unknown>[]
+			).map((e) => e as unknown as ErrorEventDetail),
+			pagination: buildPagination(data),
+		};
 	}
 
 	async getErrorDetail(errorId: string): Promise<ErrorEventDetail> {
@@ -1166,7 +1364,7 @@ export class OrchestratorAsync {
 	}
 
 	async healthDetailed(): Promise<HealthDetail> {
-		return this._get<HealthDetail>("/health/detail");
+		return this._get<HealthDetail>("/health/detailed");
 	}
 
 	async ready(): Promise<ReadinessResult> {
@@ -1174,7 +1372,7 @@ export class OrchestratorAsync {
 	}
 
 	async healthLeader(): Promise<LeaderStatus> {
-		return this._get<LeaderStatus>("/leader");
+		return this._get<LeaderStatus>("/health/leader");
 	}
 
 	async getMetrics(types?: string): Promise<MetricSnapshot> {
@@ -1188,129 +1386,148 @@ export class OrchestratorAsync {
 	// ------------------------------------------------------------------
 
 	async getSystemStatus(): Promise<SystemStatus> {
-		return this._get<SystemStatus>("/config/status");
+		return this._get<SystemStatus>("/configuration/system/status");
 	}
 
 	async updateSettings(
 		settings: Record<string, unknown>,
 	): Promise<SystemStatus> {
-		return this._post<SystemStatus>("/config/settings", settings);
+		return this._post<SystemStatus>("/configuration/system/settings", settings);
 	}
 
 	async getConfigurationStatus(): Promise<ConfigurationStatus> {
-		return this._get<ConfigurationStatus>("/config");
+		return this._get<ConfigurationStatus>("/configuration/status");
 	}
 
 	async setAgentModel(model: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			"/config/models/agent",
-			{ model },
+			"/configuration/agent",
+			{ model_name: model },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async setOrchestratorModel(model: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			"/config/models/orchestrator",
-			{ model },
+			"/configuration/orchestrator",
+			{ model_name: model },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getLLMBackendStatus(): Promise<Record<string, unknown>> {
-		return this._get<Record<string, unknown>>("/config/llmbackends");
+		return this._get<Record<string, unknown>>(
+			"/configuration/llmbackend/status",
+		);
 	}
 
 	async addLLMBackend(host: string, apiKey: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			"/config/llmbackends",
-			{
-				host,
-				api_key: apiKey,
-			},
+			"/configuration/llmbackend/add",
+			{ backends: [{ url: host, api_key: apiKey }] },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async removeLLMBackend(host: string): Promise<SuccessResponse> {
-		const data = await this._delete<Record<string, unknown>>(
-			`/config/llmbackends/${encodeURIComponent(host)}`,
+		const data = await this._post<Record<string, unknown>>(
+			"/configuration/llmbackend/remove",
+			{ host },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getMCPServerStatus(): Promise<Record<string, unknown>> {
-		return this._get<Record<string, unknown>>("/config/mcpservers");
+		return this._get<Record<string, unknown>>(
+			"/configuration/mcpserver/status",
+		);
 	}
 
 	async addMCPServer(host: string, apiKey: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			"/config/mcpservers",
-			{
-				host,
-				api_key: apiKey,
-			},
+			"/configuration/mcpserver/add",
+			{ servers: [{ url: host, api_key: apiKey }] },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async removeMCPServer(host: string): Promise<SuccessResponse> {
-		const data = await this._delete<Record<string, unknown>>(
-			`/config/mcpservers/${encodeURIComponent(host)}`,
+		const data = await this._post<Record<string, unknown>>(
+			"/configuration/mcpserver/remove",
+			{ host },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getTaskHandlerStatus(): Promise<TaskHandlerStatus> {
-		return this._get<TaskHandlerStatus>("/config/taskhandler");
+		return this._get<TaskHandlerStatus>("/configuration/taskhandler/status");
 	}
 
 	async getTaskHandlerStatusLocal(): Promise<TaskHandlerStatusLocal> {
-		return this._get<TaskHandlerStatusLocal>("/config/taskhandler/local");
+		return this._get<TaskHandlerStatusLocal>(
+			"/configuration/taskhandler/status/local",
+		);
 	}
 
 	async setConcurrentTasksPerReplica(
 		maxTasks: number,
 	): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			"/config/taskhandler/concurrency",
-			{
-				max_tasks: maxTasks,
-			},
-		);
+		const data = (await this._request(
+			"POST",
+			"/configuration/taskhandler/concurrent-per-replica",
+			{ params: { max_tasks: maxTasks } },
+		)) as Record<string, unknown>;
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getSummaryWorkerStatus(): Promise<SummaryWorkerStatus> {
-		return this._get<SummaryWorkerStatus>("/config/summary-worker");
+		return this._get<SummaryWorkerStatus>(
+			"/configuration/summary-worker/status",
+		);
 	}
 
 	async setCompactorModel(modelName: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			"/config/models/compactor",
-			{
-				model_name: modelName,
-			},
+			"/configuration/summary-worker/model",
+			{ model_name: modelName },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async setTranslateModel(modelName: string): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>(
-			"/config/models/translate",
-			{
-				model_name: modelName,
-			},
+			"/configuration/summary-worker/translate-model",
+			{ model_name: modelName },
 		);
 		return { message: (data.message ?? "") as string };
 	}
 
 	async getTokenWorkerStatus(): Promise<TokenWorkerStatus> {
-		return this._get<TokenWorkerStatus>("/config/token-worker");
+		return this._get<TokenWorkerStatus>("/configuration/token-worker/status");
 	}
 
 	async getSlotsStatus(): Promise<SlotsStatus> {
-		return this._get<SlotsStatus>("/config/slots");
+		return this._get<SlotsStatus>("/configuration/slots/status");
+	}
+
+	async getSubagentsStatus(): Promise<SubagentsStatus> {
+		return this._get<SubagentsStatus>("/configuration/subagents/status");
+	}
+
+	async setSubagentsEnabled(enabled: boolean): Promise<SuccessResponse> {
+		const data = await this._post<Record<string, unknown>>(
+			"/configuration/subagents",
+			{ enabled },
+		);
+		return { message: (data.message ?? "") as string };
+	}
+
+	async reloadServices(): Promise<ReloadServicesResult> {
+		return this._post<ReloadServicesResult>("/configuration/reload");
+	}
+
+	async getReloadStatus(): Promise<ReloadStatus> {
+		return this._get<ReloadStatus>("/configuration/reload/status");
 	}
 
 	// ------------------------------------------------------------------
@@ -1335,10 +1552,10 @@ export class OrchestratorAsync {
 		const headers = await this._resolveHeaders();
 		headers.Accept = "text/event-stream";
 		const response = await this._fetch(
-			this._makeUrl(`/tasks/${taskId}/stream`),
-			{
-				headers,
-			},
+			this._makeUrl(
+				`/task/stream_status?task_id=${encodeURIComponent(taskId)}`,
+			),
+			{ headers },
 		);
 		if (!response.ok) {
 			throw new OrchestratorAPIError(
