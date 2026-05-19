@@ -190,8 +190,12 @@ export class Orchestrator {
 		return runSync(this._async.createVSATask(params));
 	}
 
-	sendVSAMessage(taskId: string, content: string) {
-		return runSync(this._async.sendVSAMessage(taskId, content));
+	sendVSAMessage(
+		taskId: string,
+		content: string,
+		options?: { delegatedToken?: string },
+	) {
+		return runSync(this._async.sendVSAMessage(taskId, content, options));
 	}
 
 	renameVSATask(taskId: string, title: string) {
