@@ -166,9 +166,7 @@ export class Orchestrator {
 	// ------------------------------------------------------------------
 
 	sendTicketGuide(taskId: string, message: string, attachmentIds?: string[]) {
-		return runSync(
-			this._async.sendTicketGuide(taskId, message, attachmentIds),
-		);
+		return runSync(this._async.sendTicketGuide(taskId, message, attachmentIds));
 	}
 
 	respondTicketHelp(taskId: string, response: string) {
@@ -187,11 +185,7 @@ export class Orchestrator {
 	// Matrix workflow
 	// ------------------------------------------------------------------
 
-	sendMatrixMessage(
-		taskId: string,
-		message: string,
-		attachmentIds?: string[],
-	) {
+	sendMatrixMessage(taskId: string, message: string, attachmentIds?: string[]) {
 		return runSync(
 			this._async.sendMatrixMessage(taskId, message, attachmentIds),
 		);
@@ -279,9 +273,7 @@ export class Orchestrator {
 	// ------------------------------------------------------------------
 
 	sendMioMessage(taskId: string, message: string, attachmentIds?: string[]) {
-		return runSync(
-			this._async.sendMioMessage(taskId, message, attachmentIds),
-		);
+		return runSync(this._async.sendMioMessage(taskId, message, attachmentIds));
 	}
 
 	approveMioAction(taskId: string, approved = true, feedback?: string) {

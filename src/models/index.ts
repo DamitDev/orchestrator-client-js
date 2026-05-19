@@ -70,7 +70,11 @@ export type {
 	TaskJournal,
 	AttachmentUploadResponse,
 } from "./journal.js";
-export type { AuthConfig, WebSocketClientInfo, WebSocketStatus } from "./auth.js";
+export type {
+	AuthConfig,
+	WebSocketClientInfo,
+	WebSocketStatus,
+} from "./auth.js";
 export type {
 	SuccessResponse,
 	MioContext,

@@ -36,8 +36,8 @@ import type {
 	HealthDetail,
 	HealthStatus,
 	LeaderStatus,
-	MatrixConversationResult,
 	MCPRefreshResult,
+	MatrixConversationResult,
 	Message,
 	MessageDeleteMultipleResult,
 	MessageTranslation,
@@ -414,7 +414,7 @@ export class OrchestratorAsync {
 	}): Promise<TaskListResult> {
 		const headers: Record<string, string> = {};
 		if (params?.locale) headers["X-Locale"] = params.locale;
-		const data = await this._request("GET", "/tasks", {
+		const data = (await this._request("GET", "/tasks", {
 			params: {
 				page: params?.page,
 				limit: params?.limit,
@@ -423,7 +423,7 @@ export class OrchestratorAsync {
 				workflow_id: params?.workflowId,
 			},
 			headers,
-		}) as Record<string, unknown>;
+		})) as Record<string, unknown>;
 		const tasks = ((data.tasks ?? []) as Record<string, unknown>[]).map(
 			buildTaskSummary,
 		);
@@ -475,10 +475,10 @@ export class OrchestratorAsync {
 	async getTaskStatus(taskId: string, locale?: string): Promise<TaskDetail> {
 		const headers: Record<string, string> = {};
 		if (locale) headers["X-Locale"] = locale;
-		const data = await this._request("GET", "/task/status", {
+		const data = (await this._request("GET", "/task/status", {
 			params: { task_id: taskId },
 			headers,
-		}) as Record<string, unknown>;
+		})) as Record<string, unknown>;
 		return {
 			...buildTaskSummary(data),
 			subtaskIds: (data.subtaskIds ?? data.subtask_ids ?? []) as string[],
@@ -490,7 +490,10 @@ export class OrchestratorAsync {
 		};
 	}
 
-	async setTaskStatus(taskId: string, status: string): Promise<SuccessResponse> {
+	async setTaskStatus(
+		taskId: string,
+		status: string,
+	): Promise<SuccessResponse> {
 		const data = await this._post<Record<string, unknown>>("/task/set_status", {
 			task_id: taskId,
 			status,
@@ -508,14 +511,14 @@ export class OrchestratorAsync {
 	): Promise<ConversationResult> {
 		const headers: Record<string, string> = {};
 		if (params?.locale) headers["X-Locale"] = params.locale;
-		const data = await this._request("GET", "/task/conversation", {
+		const data = (await this._request("GET", "/task/conversation", {
 			params: {
 				task_id: taskId,
 				include_summaries: params?.includeSummaries,
 				exclude_archived: params?.excludeArchived,
 			},
 			headers,
-		}) as Record<string, unknown>;
+		})) as Record<string, unknown>;
 		return {
 			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
 			conversation: (
@@ -535,18 +538,16 @@ export class OrchestratorAsync {
 	}
 
 	async getTaskCompactions(taskId: string): Promise<CompactionEvent[]> {
-		const data = await this._get<Record<string, unknown>>(
-			"/task/compactions",
-			{ task_id: taskId },
-		);
+		const data = await this._get<Record<string, unknown>>("/task/compactions", {
+			task_id: taskId,
+		});
 		return (data.compactions ?? []) as CompactionEvent[];
 	}
 
 	async getTaskJournal(taskId: string): Promise<TaskJournal> {
-		const data = await this._get<Record<string, unknown>>(
-			"/task/journal",
-			{ task_id: taskId },
-		);
+		const data = await this._get<Record<string, unknown>>("/task/journal", {
+			task_id: taskId,
+		});
 		return {
 			taskId: (data.taskId ?? data.task_id ?? taskId) as string,
 			exists: (data.exists ?? false) as boolean,
@@ -913,10 +914,10 @@ export class OrchestratorAsync {
 	}
 
 	async renameVSATask(taskId: string, title: string): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			"/task/vsa/rename",
-			{ task_id: taskId, title },
-		);
+		const data = await this._post<Record<string, unknown>>("/task/vsa/rename", {
+			task_id: taskId,
+			title,
+		});
 		return { message: (data.message ?? "") as string };
 	}
 
@@ -945,18 +946,16 @@ export class OrchestratorAsync {
 	}
 
 	async stopVSA(taskId: string): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			"/task/vsa/stop",
-			{ task_id: taskId },
-		);
+		const data = await this._post<Record<string, unknown>>("/task/vsa/stop", {
+			task_id: taskId,
+		});
 		return { message: (data.message ?? "") as string };
 	}
 
 	async deleteVSA(taskId: string): Promise<SuccessResponse> {
-		const data = await this._post<Record<string, unknown>>(
-			"/task/vsa/delete",
-			{ task_id: taskId },
-		);
+		const data = await this._post<Record<string, unknown>>("/task/vsa/delete", {
+			task_id: taskId,
+		});
 		return { message: (data.message ?? "") as string };
 	}
 
@@ -980,10 +979,11 @@ export class OrchestratorAsync {
 		query: string,
 		limit?: number,
 	): Promise<TaskListResult> {
-		const data = await this._get<Record<string, unknown>>(
-			"/task/vsa/search",
-			{ user_id: userId, query, limit },
-		);
+		const data = await this._get<Record<string, unknown>>("/task/vsa/search", {
+			user_id: userId,
+			query,
+			limit,
+		});
 		const tasks = ((data.tasks ?? []) as Record<string, unknown>[]).map(
 			buildTaskSummary,
 		);
@@ -1085,8 +1085,12 @@ export class OrchestratorAsync {
 				data.usage_percentage ??
 				0) as number,
 			totalMessages: (data.totalMessages ?? data.total_messages ?? 0) as number,
-			activeMessages: (data.activeMessages ?? data.active_messages ?? 0) as number,
-			archivedMessages: (data.archivedMessages ?? data.archived_messages ?? 0) as number,
+			activeMessages: (data.activeMessages ??
+				data.active_messages ??
+				0) as number,
+			archivedMessages: (data.archivedMessages ??
+				data.archived_messages ??
+				0) as number,
 			messagesWithoutTokenCount: (data.messagesWithoutTokenCount ??
 				data.messages_without_token_count ??
 				0) as number,
@@ -1114,9 +1118,9 @@ export class OrchestratorAsync {
 	async listTools(): Promise<ToolsListResult> {
 		const data = await this._get<Record<string, unknown>>("/tools/all");
 		return {
-			tools: (
-				(data.tools ?? []) as Record<string, unknown>[]
-			).map((t) => t as unknown as ToolInfo),
+			tools: ((data.tools ?? []) as Record<string, unknown>[]).map(
+				(t) => t as unknown as ToolInfo,
+			),
 			totalTools: (data.totalTools ?? data.total_tools ?? 0) as number,
 			servers: (data.servers ?? []) as string[],
 		};
@@ -1294,13 +1298,11 @@ export class OrchestratorAsync {
 		if (params?.taskId) url.searchParams.set("task_id", params.taskId);
 		if (params?.workflowId)
 			url.searchParams.set("workflow_id", params.workflowId);
-		if (params?.errorCode)
-			url.searchParams.set("error_code", params.errorCode);
+		if (params?.errorCode) url.searchParams.set("error_code", params.errorCode);
 		if (params?.exceptionType)
 			url.searchParams.set("exception_type", params.exceptionType);
 		if (params?.holderId) url.searchParams.set("holder_id", params.holderId);
-		if (params?.requestId)
-			url.searchParams.set("request_id", params.requestId);
+		if (params?.requestId) url.searchParams.set("request_id", params.requestId);
 		if (params?.search) url.searchParams.set("search", params.search);
 		if (params?.since) url.searchParams.set("since", params.since);
 		if (params?.until) url.searchParams.set("until", params.until);
@@ -1326,9 +1328,9 @@ export class OrchestratorAsync {
 		}
 		const data = (await response.json()) as Record<string, unknown>;
 		return {
-			items: ((data.items ?? data.errors ?? []) as Record<string, unknown>[]).map(
-				(e) => e as unknown as ErrorEventDetail,
-			),
+			items: (
+				(data.items ?? data.errors ?? []) as Record<string, unknown>[]
+			).map((e) => e as unknown as ErrorEventDetail),
 			pagination: buildPagination(data),
 		};
 	}
@@ -1390,10 +1392,7 @@ export class OrchestratorAsync {
 	async updateSettings(
 		settings: Record<string, unknown>,
 	): Promise<SystemStatus> {
-		return this._post<SystemStatus>(
-			"/configuration/system/settings",
-			settings,
-		);
+		return this._post<SystemStatus>("/configuration/system/settings", settings);
 	}
 
 	async getConfigurationStatus(): Promise<ConfigurationStatus> {
@@ -1461,9 +1460,7 @@ export class OrchestratorAsync {
 	}
 
 	async getTaskHandlerStatus(): Promise<TaskHandlerStatus> {
-		return this._get<TaskHandlerStatus>(
-			"/configuration/taskhandler/status",
-		);
+		return this._get<TaskHandlerStatus>("/configuration/taskhandler/status");
 	}
 
 	async getTaskHandlerStatusLocal(): Promise<TaskHandlerStatusLocal> {
@@ -1475,11 +1472,11 @@ export class OrchestratorAsync {
 	async setConcurrentTasksPerReplica(
 		maxTasks: number,
 	): Promise<SuccessResponse> {
-		const data = await this._request(
+		const data = (await this._request(
 			"POST",
 			"/configuration/taskhandler/concurrent-per-replica",
 			{ params: { max_tasks: maxTasks } },
-		) as Record<string, unknown>;
+		)) as Record<string, unknown>;
 		return { message: (data.message ?? "") as string };
 	}
 
@@ -1555,7 +1552,9 @@ export class OrchestratorAsync {
 		const headers = await this._resolveHeaders();
 		headers.Accept = "text/event-stream";
 		const response = await this._fetch(
-			this._makeUrl(`/task/stream_status?task_id=${encodeURIComponent(taskId)}`),
+			this._makeUrl(
+				`/task/stream_status?task_id=${encodeURIComponent(taskId)}`,
+			),
 			{ headers },
 		);
 		if (!response.ok) {

@@ -126,9 +126,7 @@ export class RealtimeClient {
 
 		// All domain events come wrapped in a `message` socket event with
 		// an inner `event_type` field. Dispatch them to registered handlers.
-		this._socket.on("message", (payload: unknown) =>
-			this._dispatch(payload),
-		);
+		this._socket.on("message", (payload: unknown) => this._dispatch(payload));
 
 		return new Promise<void>((resolve, reject) => {
 			if (!this._socket) {
