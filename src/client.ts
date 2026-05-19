@@ -768,12 +768,19 @@ export class OrchestratorAsync {
 		goalPrompt: string;
 		title?: string;
 		modelId?: string;
+		/** Short-lived AiDIT delegated token (RFC 8693). Stored encrypted;
+		 *  transparently appended as `token` to mcp-aidit tool-call arguments. */
+		delegatedToken?: string;
 	}): Promise<VSATaskCreateResponse> {
-		const data = await this._post<Record<string, unknown>>("/tasks/vsa", {
+		const body: Record<string, unknown> = {
 			goal_prompt: params.goalPrompt,
 			title: params.title,
 			model_id: params.modelId,
-		});
+		};
+		if (params.delegatedToken !== undefined) {
+			body.delegated_token = params.delegatedToken;
+		}
+		const data = await this._post<Record<string, unknown>>("/tasks/vsa", body);
 		return {
 			taskId: (data.taskId ?? data.task_id ?? "") as string,
 			status: (data.status ?? "") as string,
@@ -783,12 +790,19 @@ export class OrchestratorAsync {
 	async sendVSAMessage(
 		taskId: string,
 		content: string,
+		options?: {
+			/** Short-lived AiDIT delegated token. When provided, overwrites the
+			 *  token stored for the task. Omitting leaves the existing token unchanged. */
+			delegatedToken?: string;
+		},
 	): Promise<SuccessResponse> {
+		const body: Record<string, unknown> = { content };
+		if (options?.delegatedToken !== undefined) {
+			body.delegated_token = options.delegatedToken;
+		}
 		const data = await this._post<Record<string, unknown>>(
 			`/tasks/${taskId}/vsa/message`,
-			{
-				content,
-			},
+			body,
 		);
 		return { message: (data.message ?? "") as string };
 	}

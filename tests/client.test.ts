@@ -196,6 +196,73 @@ describe("OrchestratorAsync health", () => {
 })
 
 // ---------------------------------------------------------------------------
+// VSA delegated token
+// ---------------------------------------------------------------------------
+
+describe("OrchestratorAsync VSA delegated token", () => {
+  it("includes delegated_token in createVSATask body when provided", async () => {
+    let capturedBody: unknown
+    const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string)
+      return new Response(
+        JSON.stringify({ task_id: "vsa-1", status: "queued" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    })
+    const client = new OrchestratorAsync({ baseUrl: "http://localhost:8080", fetch: mockFetch })
+    await client.createVSATask({
+      goalPrompt: "AiDIT kérdés",
+      delegatedToken: "eyJhbGciOiJSUzI1NiJ9.test",
+    })
+    expect((capturedBody as Record<string, unknown>).delegated_token).toBe(
+      "eyJhbGciOiJSUzI1NiJ9.test",
+    )
+  })
+
+  it("omits delegated_token from createVSATask body when not provided", async () => {
+    let capturedBody: unknown
+    const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string)
+      return new Response(
+        JSON.stringify({ task_id: "vsa-2", status: "queued" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    })
+    const client = new OrchestratorAsync({ baseUrl: "http://localhost:8080", fetch: mockFetch })
+    await client.createVSATask({ goalPrompt: "Kérdés" })
+    expect((capturedBody as Record<string, unknown>).delegated_token).toBeUndefined()
+  })
+
+  it("includes delegated_token in sendVSAMessage body when provided", async () => {
+    let capturedBody: unknown
+    const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string)
+      return new Response(
+        JSON.stringify({ message: "ok" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    })
+    const client = new OrchestratorAsync({ baseUrl: "http://localhost:8080", fetch: mockFetch })
+    await client.sendVSAMessage("task-1", "Hello", { delegatedToken: "fresh-tok" })
+    expect((capturedBody as Record<string, unknown>).delegated_token).toBe("fresh-tok")
+  })
+
+  it("omits delegated_token from sendVSAMessage body when not provided", async () => {
+    let capturedBody: unknown
+    const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string)
+      return new Response(
+        JSON.stringify({ message: "ok" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    })
+    const client = new OrchestratorAsync({ baseUrl: "http://localhost:8080", fetch: mockFetch })
+    await client.sendVSAMessage("task-1", "Hello")
+    expect((capturedBody as Record<string, unknown>).delegated_token).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Orchestrator (sync wrapper)
 // ---------------------------------------------------------------------------
 
