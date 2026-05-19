@@ -137,6 +137,15 @@ export interface OrchestratorClientOptions {
 	/** Max retry attempts on transient failures (default: 3). */
 	maxRetries?: number;
 	/**
+	 * Locale tag sent as `X-Locale` on every request (e.g. `"hu-hu"`, `"en-us"`).
+	 *
+	 * When set the API returns translated content where available.
+	 * When not set the API returns its default (English) content.
+	 * Per-call locale overrides (on `listTasks`, `getTaskStatus`, etc.)
+	 * take precedence over this global setting.
+	 */
+	locale?: string;
+	/**
 	 * Custom fetch implementation override.
 	 *
 	 * Use this to inject a fetch that ignores SSL errors (self-signed certs):
@@ -168,6 +177,7 @@ export class OrchestratorAsync {
 	protected _getToken: (() => string | Promise<string>) | undefined;
 	protected _timeoutMs: number;
 	protected _maxRetries: number;
+	protected _locale: string | undefined;
 	protected _fetch: typeof globalThis.fetch;
 	protected _abortController: AbortController | null = null;
 
@@ -180,6 +190,7 @@ export class OrchestratorAsync {
 		this._getToken = opts.getToken;
 		this._timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		this._maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
+		this._locale = opts.locale;
 		this._fetch = opts.fetch ?? globalThis.fetch;
 		if (
 			opts.insecure &&
@@ -216,6 +227,9 @@ export class OrchestratorAsync {
 			if (token) {
 				headers.Authorization = `Bearer ${token}`;
 			}
+		}
+		if (this._locale) {
+			headers["X-Locale"] = this._locale;
 		}
 		return headers;
 	}
@@ -538,10 +552,9 @@ export class OrchestratorAsync {
 	}
 
 	async getTaskCompactions(taskId: string): Promise<CompactionEvent[]> {
-		const data = await this._get<Record<string, unknown>>("/task/compactions", {
+		return this._get<CompactionEvent[]>("/task/compactions", {
 			task_id: taskId,
 		});
-		return (data.compactions ?? []) as CompactionEvent[];
 	}
 
 	async getTaskJournal(taskId: string): Promise<TaskJournal> {
@@ -1339,8 +1352,10 @@ export class OrchestratorAsync {
 		return this._get<ErrorEventDetail>(`/errors/${errorId}`);
 	}
 
-	async getErrorStats(since?: string): Promise<ErrorStatsResult> {
-		const params: Record<string, string | number | boolean | undefined> = {};
+	async getErrorStats(since?: string, topN = 10): Promise<ErrorStatsResult> {
+		const params: Record<string, string | number | boolean | undefined> = {
+			top_n: topN,
+		};
 		if (since) params.since = since;
 		return this._get<ErrorStatsResult>("/errors/stats", params);
 	}

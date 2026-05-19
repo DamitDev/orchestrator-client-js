@@ -67,6 +67,19 @@ export interface RealtimeClientOptions {
 	getToken?: (() => string | Promise<string>) | string;
 	/** Whether to auto-connect on construction (default: false). */
 	autoConnect?: boolean;
+	/**
+	 * Client identifier sent as the `client_id` query parameter at connection
+	 * time.  The server uses this for logging/diagnostics.
+	 * Defaults to `"orchestrator-client"`.
+	 */
+	clientId?: string;
+	/**
+	 * Locale tag sent as the `locale` query parameter at connection time
+	 * (e.g. `"hu-hu"`, `"en-us"`).  When set the server automatically joins
+	 * the client into the matching `locale:<tag>` room so translation-ready
+	 * events are delivered without a separate `subscribeLocale()` call.
+	 */
+	locale?: string;
 }
 
 /**
@@ -75,19 +88,46 @@ export interface RealtimeClientOptions {
  * The server wraps all domain events in a `message` Socket.IO event with an
  * inner `event_type` field. This client unwraps the envelope and dispatches
  * to registered handlers by event_type.
+ *
+ * ## Two subscription APIs — choose one or mix them:
+ *
+ * ### 1. Event-type handlers via `on(event, handler)`
+ * Registers a callback for a specific event type string (e.g.
+ * `"task_status_changed"`). You still need to join the relevant rooms
+ * manually via `subscribeTask()`, `subscribeEvents()`, etc.
+ *
+ * ### 2. Room-scoped subscribers via `subscribe(handler, rooms)`
+ * Mirrors the WebSocketProvider pattern used in the webui. Each call
+ * returns an opaque subscription id. Calling `unsubscribe(id)` removes it.
+ * Room membership is kept in sync automatically: the client joins the union
+ * of all subscribers' rooms and leaves rooms that are no longer needed.
+ * The handler receives the unwrapped event dict for every event from those
+ * rooms, regardless of type.
  */
 export class RealtimeClient {
 	private _baseUrl: string;
 	private _socketOptions: Record<string, unknown>;
 	private _getToken?: (() => string | Promise<string>) | string;
+	private _clientId: string;
+	private _locale?: string;
 	private _socket: SocketIOClient | null = null;
 	private _handlers: Map<string, Set<EventHandler>> = new Map();
 	private _connected = false;
+
+	// Multi-subscriber room-diffing state (mirrors WebSocketProvider)
+	private _subscriptions: Map<
+		string,
+		{ handler: EventHandler; rooms: string[] }
+	> = new Map();
+	private _currentRooms: Set<string> = new Set();
+	private _subIdCounter = 0;
 
 	constructor(baseUrl: string, opts: RealtimeClientOptions) {
 		this._baseUrl = baseUrl.replace(/\/+$/, "");
 		this._socketOptions = opts.socketOptions ?? {};
 		this._getToken = opts.getToken;
+		this._clientId = opts.clientId ?? "orchestrator-client";
+		this._locale = opts.locale;
 
 		if (opts.autoConnect) {
 			this.connect();
@@ -107,21 +147,31 @@ export class RealtimeClient {
 					: this._getToken;
 		}
 
+		const query: Record<string, string> = { client_id: this._clientId };
+		if (this._locale) {
+			query.locale = this._locale;
+		}
+
 		// We construct the socket dynamically to avoid a hard import
 		const { io } = await import("socket.io-client");
 		this._socket = io(this._baseUrl, {
 			path: "/socket.io",
 			auth,
+			query,
 			transports: ["websocket", "polling"],
 			...this._socketOptions,
 		}) as unknown as SocketIOClient;
 
 		this._socket.on("connect", () => {
 			this._connected = true;
+			// Re-sync rooms after reconnect (server-side room membership is lost)
+			this._currentRooms = new Set();
+			this._syncRooms();
 		});
 
 		this._socket.on("disconnect", () => {
 			this._connected = false;
+			this._currentRooms = new Set();
 		});
 
 		// All domain events come wrapped in a `message` socket event with
@@ -151,7 +201,7 @@ export class RealtimeClient {
 	}
 
 	/**
-	 * Dispatch a message envelope to registered handlers.
+	 * Dispatch a message envelope to registered handlers and subscribers.
 	 * The server sends: socket.emit("message", {type: "message", event: {..., event_type: "...", ...}})
 	 */
 	private _dispatch(payload: unknown): void {
@@ -159,11 +209,18 @@ export class RealtimeClient {
 		const event = (envelope.event ?? envelope) as Record<string, unknown>;
 		const eventType = event.event_type as string | undefined;
 		if (!eventType) return;
+
+		// Dispatch to event-type handlers registered via on()
 		const handlers = this._handlers.get(eventType);
 		if (handlers) {
 			for (const h of handlers) {
 				h(event);
 			}
+		}
+
+		// Fan out to all room-scoped subscribers registered via subscribe()
+		for (const sub of this._subscriptions.values()) {
+			sub.handler(event);
 		}
 	}
 
@@ -242,6 +299,72 @@ export class RealtimeClient {
 	leaveRooms(rooms: string[]): void {
 		if (!this._socket) throw new Error("RealtimeClient not connected");
 		this._socket.emit("leave", { rooms });
+	}
+
+	// ------------------------------------------------------------------
+	// Multi-subscriber API (mirrors WebSocketProvider room-diffing)
+	// ------------------------------------------------------------------
+
+	/**
+	 * Register a subscriber that receives all events from the given rooms.
+	 *
+	 * Room membership is managed automatically: the client joins the union
+	 * of all active subscribers' rooms and leaves rooms that are no longer
+	 * needed when the last subscriber referencing them is removed.
+	 *
+	 * The `handler` receives the unwrapped event dict (same object that
+	 * `on()` handlers receive).
+	 *
+	 * Returns an opaque subscription id that must be passed to
+	 * `unsubscribe()` to remove the subscription.
+	 *
+	 * Example — mirror the webui's per-component subscription pattern:
+	 *
+	 *   const id = rt.subscribe((event) => {
+	 *     if (event.event_type === "task_status_changed") { ... }
+	 *   }, [`task:${taskId}`]);
+	 *
+	 *   // later, on cleanup:
+	 *   rt.unsubscribe(id);
+	 */
+	subscribe(handler: EventHandler, rooms: string[]): string {
+		const id = `sub_${++this._subIdCounter}`;
+		this._subscriptions.set(id, { handler, rooms });
+		this._syncRooms();
+		return id;
+	}
+
+	/**
+	 * Remove a subscription registered via `subscribe()`.
+	 *
+	 * Rooms that are no longer referenced by any remaining subscriber are
+	 * left automatically.
+	 */
+	unsubscribe(id: string): void {
+		this._subscriptions.delete(id);
+		this._syncRooms();
+	}
+
+	/**
+	 * Diff the union of all subscribers' rooms against the currently joined
+	 * rooms and emit `join`/`leave` for the delta.  No-ops when not connected.
+	 */
+	private _syncRooms(): void {
+		const socket = this._socket;
+		if (!socket?.connected) return;
+
+		const needed = new Set<string>();
+		for (const sub of this._subscriptions.values()) {
+			for (const r of sub.rooms) needed.add(r);
+		}
+
+		const toJoin = [...needed].filter((r) => !this._currentRooms.has(r));
+		const toLeave = [...this._currentRooms].filter((r) => !needed.has(r));
+
+		if (toJoin.length) socket.emit("join", { rooms: toJoin });
+		if (toLeave.length) socket.emit("leave", { rooms: toLeave });
+
+		this._currentRooms = needed;
 	}
 
 	/**
