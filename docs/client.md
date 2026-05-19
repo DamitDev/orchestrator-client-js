@@ -21,6 +21,8 @@ const asyncClient = new OrchestratorAsync({ baseUrl: "http://localhost:8080" });
 | `getToken` | `() => string \| Promise<string>` | — | Dynamic token callback |
 | `timeoutMs` | `number` | `30000` | Request timeout in ms |
 | `maxRetries` | `number` | `3` | Max retry attempts |
+| `fetch` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation |
+| `insecure` | `boolean` | `false` | Allow self-signed SSL (Node.js) |
 
 ## Task Methods
 

@@ -134,9 +134,64 @@ describe("OrchestratorAsync", () => {
 
   it("normalizes baseUrl by stripping trailing slash", () => {
     const client = new OrchestratorAsync({ baseUrl: "http://localhost:8080/" })
-    // Verify via internal method
     const url = (client as unknown as { _makeUrl: (p: string) => string })._makeUrl("/health")
     expect(url).toBe("http://localhost:8080/health")
+  })
+
+  it("uses custom fetch when provided", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok", message: "mock", version: "1.0" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    const client = new OrchestratorAsync({
+      baseUrl: "http://localhost:8080",
+      fetch: mockFetch,
+    })
+    const result = await client.health()
+    expect(result.status).toBe("ok")
+    expect(mockFetch).toHaveBeenCalled()
+  })
+
+  it("sets _insecure flag when insecure: true in Node.js", () => {
+    // In Node.js test environment, process.versions.node exists
+    const client = new OrchestratorAsync({
+      baseUrl: "https://localhost:8443",
+      insecure: true,
+    }) as unknown as { _insecure: boolean }
+    expect(client._insecure).toBe(true)
+  })
+
+  it("does not set _insecure when insecure: true but custom fetch provided", () => {
+    const mockFetch = vi.fn()
+    const client = new OrchestratorAsync({
+      baseUrl: "https://localhost:8443",
+      insecure: true,
+      fetch: mockFetch,
+    }) as unknown as { _insecure: boolean }
+    expect(client._insecure).toBe(false)
+  })
+})
+
+describe("OrchestratorAsync health", () => {
+  it("uses injected fetch for API calls", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok", message: "healthy", version: "1.0" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    const client = new OrchestratorAsync({
+      baseUrl: "http://localhost:8080",
+      fetch: mockFetch,
+    })
+    const result = await client.health()
+    expect(result).toEqual({ status: "ok", message: "healthy", version: "1.0" })
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8080/health",
+      expect.objectContaining({ method: "GET" }),
+    )
   })
 })
 
