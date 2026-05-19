@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: [self-hosted, fast]
+    # OIDC trusted publishing requires GitHub-hosted runners
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,11 +20,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Upgrade npm (required for OIDC trusted publishing)
+        run: npm install -g npm@latest
 
       - name: Set version from tag
         run: |
@@ -39,7 +47,5 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish to npm
+      - name: Publish to npm (OIDC)
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
