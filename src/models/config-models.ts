@@ -111,8 +111,31 @@ export interface ConfigurationStatus {
 	orchestratorModel: string | null;
 	summaryModel: string | null;
 	translateModel: string | null;
+	llmBackendsCount: number;
+	mcpServersCount: number;
+	totalTasks: number;
+	queuedTasks: number;
+	activeTasks: number;
+	pendingApprovalTasks: number;
+	subagentsEnabled: boolean;
 	localizationTargets: Record<string, string>[];
-	llmbackends: LLMBackendInfo[];
-	mcpservers: MCPServerInfo[];
-	builtinTools: string[];
+}
+
+export interface SubagentsStatus {
+	subagentsEnabled: boolean;
+}
+
+export interface ReloadServicesResult {
+	timestamp: string;
+	llmBackends: Record<string, unknown>;
+	mcpServers: Record<string, unknown>;
+	slotManager: Record<string, unknown>;
+	nextScheduledReload?: string;
+}
+
+export interface ReloadStatus {
+	enabled: boolean;
+	intervalHours: number | null;
+	lastReload?: string;
+	nextScheduledReload?: string;
 }

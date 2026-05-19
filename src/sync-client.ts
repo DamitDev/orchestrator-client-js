@@ -58,12 +58,19 @@ export class Orchestrator {
 		return runSync(this._async.createTask(params));
 	}
 
-	getTaskStatus(taskId: string) {
-		return runSync(this._async.getTaskStatus(taskId));
+	getTaskStatus(taskId: string, locale?: string) {
+		return runSync(this._async.getTaskStatus(taskId, locale));
 	}
 
-	getTaskConversation(taskId: string) {
-		return runSync(this._async.getTaskConversation(taskId));
+	setTaskStatus(taskId: string, status: string) {
+		return runSync(this._async.setTaskStatus(taskId, status));
+	}
+
+	getTaskConversation(
+		taskId: string,
+		params?: Parameters<OrchestratorAsync["getTaskConversation"]>[1],
+	) {
+		return runSync(this._async.getTaskConversation(taskId, params));
 	}
 
 	getArchivedMessageContent(taskId: string, messageId: number) {
@@ -94,20 +101,26 @@ export class Orchestrator {
 	// Attachments
 	// ------------------------------------------------------------------
 
-	uploadAttachment(taskId: string, file: File | Blob, filename?: string) {
-		return runSync(this._async.uploadAttachment(taskId, file, filename));
+	uploadAttachment(file: File | Blob, filename?: string) {
+		return runSync(this._async.uploadAttachment(file, filename));
 	}
 
-	downloadAttachment(taskId: string, attachmentId: string) {
-		return runSync(this._async.downloadAttachment(taskId, attachmentId));
+	downloadAttachment(attachmentId: string) {
+		return runSync(this._async.downloadAttachment(attachmentId));
 	}
 
 	// ------------------------------------------------------------------
 	// Interactive workflow
 	// ------------------------------------------------------------------
 
-	sendInteractiveMessage(taskId: string, content: string) {
-		return runSync(this._async.sendInteractiveMessage(taskId, content));
+	sendInteractiveMessage(
+		taskId: string,
+		message: string,
+		attachmentIds?: string[],
+	) {
+		return runSync(
+			this._async.sendInteractiveMessage(taskId, message, attachmentIds),
+		);
 	}
 
 	markInteractiveComplete(taskId: string) {
@@ -118,40 +131,52 @@ export class Orchestrator {
 		return runSync(this._async.markInteractiveFailed(taskId));
 	}
 
-	approveInteractiveAction(taskId: string) {
-		return runSync(this._async.approveInteractiveAction(taskId));
+	approveInteractiveAction(taskId: string, approved = true) {
+		return runSync(this._async.approveInteractiveAction(taskId, approved));
+	}
+
+	stopInteractive(taskId: string) {
+		return runSync(this._async.stopInteractive(taskId));
 	}
 
 	// ------------------------------------------------------------------
 	// Proactive workflow
 	// ------------------------------------------------------------------
 
-	sendProactiveGuide(taskId: string, guide: string) {
-		return runSync(this._async.sendProactiveGuide(taskId, guide));
+	sendProactiveGuide(
+		taskId: string,
+		message: string,
+		attachmentIds?: string[],
+	) {
+		return runSync(
+			this._async.sendProactiveGuide(taskId, message, attachmentIds),
+		);
 	}
 
 	respondProactiveHelp(taskId: string, response: string) {
 		return runSync(this._async.respondProactiveHelp(taskId, response));
 	}
 
-	approveProactiveAction(taskId: string) {
-		return runSync(this._async.approveProactiveAction(taskId));
+	approveProactiveAction(taskId: string, approved = true) {
+		return runSync(this._async.approveProactiveAction(taskId, approved));
 	}
 
 	// ------------------------------------------------------------------
 	// Ticket workflow
 	// ------------------------------------------------------------------
 
-	sendTicketGuide(taskId: string, guide: string) {
-		return runSync(this._async.sendTicketGuide(taskId, guide));
+	sendTicketGuide(taskId: string, message: string, attachmentIds?: string[]) {
+		return runSync(
+			this._async.sendTicketGuide(taskId, message, attachmentIds),
+		);
 	}
 
 	respondTicketHelp(taskId: string, response: string) {
 		return runSync(this._async.respondTicketHelp(taskId, response));
 	}
 
-	approveTicketAction(taskId: string) {
-		return runSync(this._async.approveTicketAction(taskId));
+	approveTicketAction(taskId: string, approved = true) {
+		return runSync(this._async.approveTicketAction(taskId, approved));
 	}
 
 	wakeTicket(taskId: string) {
@@ -162,8 +187,14 @@ export class Orchestrator {
 	// Matrix workflow
 	// ------------------------------------------------------------------
 
-	sendMatrixMessage(taskId: string, content: string) {
-		return runSync(this._async.sendMatrixMessage(taskId, content));
+	sendMatrixMessage(
+		taskId: string,
+		message: string,
+		attachmentIds?: string[],
+	) {
+		return runSync(
+			this._async.sendMatrixMessage(taskId, message, attachmentIds),
+		);
 	}
 
 	markMatrixComplete(taskId: string) {
@@ -174,12 +205,18 @@ export class Orchestrator {
 		return runSync(this._async.markMatrixFailed(taskId));
 	}
 
-	approveMatrixAction(taskId: string) {
-		return runSync(this._async.approveMatrixAction(taskId));
+	approveMatrixAction(taskId: string, approved = true) {
+		return runSync(this._async.approveMatrixAction(taskId, approved));
 	}
 
-	getMatrixConversation(taskId: string) {
-		return runSync(this._async.getMatrixConversation(taskId));
+	getMatrixConversation(
+		taskId: string,
+		phase?: number,
+		includeSummaries?: boolean,
+	) {
+		return runSync(
+			this._async.getMatrixConversation(taskId, phase, includeSummaries),
+		);
 	}
 
 	// ------------------------------------------------------------------
@@ -192,10 +229,10 @@ export class Orchestrator {
 
 	sendVSAMessage(
 		taskId: string,
-		content: string,
-		options?: { delegatedToken?: string },
+		message: string,
+		options?: { attachmentIds?: string[]; delegatedToken?: string },
 	) {
-		return runSync(this._async.sendVSAMessage(taskId, content, options));
+		return runSync(this._async.sendVSAMessage(taskId, message, options));
 	}
 
 	renameVSATask(taskId: string, title: string) {
@@ -222,12 +259,15 @@ export class Orchestrator {
 		return runSync(this._async.deleteVSA(taskId));
 	}
 
-	listVSATasks(params?: Parameters<OrchestratorAsync["listVSATasks"]>[0]) {
-		return runSync(this._async.listVSATasks(params));
+	listVSATasks(
+		userId: string,
+		params?: Parameters<OrchestratorAsync["listVSATasks"]>[1],
+	) {
+		return runSync(this._async.listVSATasks(userId, params));
 	}
 
-	searchVSATasks(query: string) {
-		return runSync(this._async.searchVSATasks(query));
+	searchVSATasks(userId: string, query: string, limit?: number) {
+		return runSync(this._async.searchVSATasks(userId, query, limit));
 	}
 
 	deleteVSATasksBulk(taskIds: string[]) {
@@ -235,15 +275,17 @@ export class Orchestrator {
 	}
 
 	// ------------------------------------------------------------------
-	// MIO workflow
+	// MIO (self_managed) workflow
 	// ------------------------------------------------------------------
 
-	sendMioMessage(taskId: string, content: string) {
-		return runSync(this._async.sendMioMessage(taskId, content));
+	sendMioMessage(taskId: string, message: string, attachmentIds?: string[]) {
+		return runSync(
+			this._async.sendMioMessage(taskId, message, attachmentIds),
+		);
 	}
 
-	approveMioAction(taskId: string) {
-		return runSync(this._async.approveMioAction(taskId));
+	approveMioAction(taskId: string, approved = true, feedback?: string) {
+		return runSync(this._async.approveMioAction(taskId, approved, feedback));
 	}
 
 	wakeMio(taskId: string) {
@@ -270,12 +312,28 @@ export class Orchestrator {
 		return runSync(this._async.getMioContext(taskId));
 	}
 
+	getMioMemories(taskId: string, includeCommon?: boolean) {
+		return runSync(this._async.getMioMemories(taskId, includeCommon));
+	}
+
 	// ------------------------------------------------------------------
 	// Tools
 	// ------------------------------------------------------------------
 
 	listTools() {
 		return runSync(this._async.listTools());
+	}
+
+	getToolCatalog() {
+		return runSync(this._async.getToolCatalog());
+	}
+
+	refreshMCPTools() {
+		return runSync(this._async.refreshMCPTools());
+	}
+
+	validateToolCatalog() {
+		return runSync(this._async.validateToolCatalog());
 	}
 
 	// ------------------------------------------------------------------
@@ -288,13 +346,19 @@ export class Orchestrator {
 
 	updateTaskModels(
 		taskId: string,
-		models: { agent?: string; orchestrator?: string },
+		models: { agentModelId?: string; orchestratorModelId?: string },
 	) {
 		return runSync(this._async.updateTaskModels(taskId, models));
 	}
 
-	updateTaskIteration(taskId: string, iteration: number) {
-		return runSync(this._async.updateTaskIteration(taskId, iteration));
+	updateTaskIteration(
+		taskId: string,
+		iteration?: number,
+		maxIterations?: number,
+	) {
+		return runSync(
+			this._async.updateTaskIteration(taskId, iteration, maxIterations),
+		);
 	}
 
 	updateTaskWorkflowData(
@@ -324,10 +388,8 @@ export class Orchestrator {
 		return runSync(this._async.resetMatrixToPhase(taskId, phase));
 	}
 
-	getMessageTranslations(taskId: string, messageId: number, locale?: string) {
-		return runSync(
-			this._async.getMessageTranslations(taskId, messageId, locale),
-		);
+	getMessageTranslations(taskId: string, messageId: number) {
+		return runSync(this._async.getMessageTranslations(taskId, messageId));
 	}
 
 	// ------------------------------------------------------------------
@@ -456,6 +518,22 @@ export class Orchestrator {
 
 	getSlotsStatus() {
 		return runSync(this._async.getSlotsStatus());
+	}
+
+	getSubagentsStatus() {
+		return runSync(this._async.getSubagentsStatus());
+	}
+
+	setSubagentsEnabled(enabled: boolean) {
+		return runSync(this._async.setSubagentsEnabled(enabled));
+	}
+
+	reloadServices() {
+		return runSync(this._async.reloadServices());
+	}
+
+	getReloadStatus() {
+		return runSync(this._async.getReloadStatus());
 	}
 
 	// ------------------------------------------------------------------

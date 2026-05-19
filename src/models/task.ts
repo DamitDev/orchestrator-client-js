@@ -54,6 +54,10 @@ export interface TaskCreateResponse {
 export interface TaskCancelResponse {
 	taskId: string;
 	killed: boolean;
+	via: "local" | "remote" | "none" | "fallback";
+	holderId?: string;
+	reason?: string;
+	message: string;
 }
 
 export interface VSATaskCreateResponse extends TaskCreateResponse {}

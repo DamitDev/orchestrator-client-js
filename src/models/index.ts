@@ -1,4 +1,4 @@
-export type { Pagination } from "./pagination";
+export type { Pagination } from "./pagination.js";
 export type {
 	TaskSummary,
 	TaskOptions,
@@ -8,7 +8,7 @@ export type {
 	TaskCancelResponse,
 	TaskDeleteResult,
 	VSATaskCreateResponse,
-} from "./task";
+} from "./task.js";
 export type {
 	AttachmentMeta,
 	ToolCall,
@@ -19,14 +19,15 @@ export type {
 	MessageTranslation,
 	MessageTranslationsResult,
 	MessageTranslationReadyEvent,
-} from "./conversation";
+} from "./conversation.js";
 export type {
 	ErrorEvent,
 	ErrorEventDetail,
+	ErrorEventListResult,
 	ErrorStatsResult,
 	ErrorCountResult,
 	ErrorPurgeResult,
-} from "./errors";
+} from "./errors.js";
 export type {
 	HealthStatus,
 	ComponentHealth,
@@ -36,7 +37,7 @@ export type {
 	LockStatus,
 	LeaderStatus,
 	MetricSnapshot,
-} from "./health";
+} from "./health.js";
 export type {
 	SystemStatusSettings,
 	SystemStatus,
@@ -51,12 +52,30 @@ export type {
 	SlotInfo,
 	SlotsStatus,
 	ConfigurationStatus,
-} from "./config-models";
-export type { ToolInfo, ToolsListResult } from "./tools";
+	SubagentsStatus,
+	ReloadServicesResult,
+	ReloadStatus,
+} from "./config-models.js";
+export type {
+	ToolInfo,
+	ToolsListResult,
+	ToolCatalogEntry,
+	ToolCatalogResult,
+	MCPRefreshResult,
+	CatalogValidationIssue,
+	CatalogValidationResult,
+} from "./tools.js";
 export type {
 	CompactionEvent,
 	TaskJournal,
 	AttachmentUploadResponse,
-} from "./journal";
-export type { AuthConfig, WebSocketClientInfo, WebSocketStatus } from "./auth";
-export type { SuccessResponse, MioContext, WorkflowStates } from "./workflow";
+} from "./journal.js";
+export type { AuthConfig, WebSocketClientInfo, WebSocketStatus } from "./auth.js";
+export type {
+	SuccessResponse,
+	MioContext,
+	MioMemoryItem,
+	MioMemoriesResult,
+	MessageDeleteMultipleResult,
+	WorkflowStates,
+} from "./workflow.js";
